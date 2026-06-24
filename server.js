@@ -1,92 +1,93 @@
 const express = require('express');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const path = require('path');
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'leave.db');
-const db = new Database(dbPath);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    color TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS leaves (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    start_date TEXT NOT NULL,
-    end_date TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'Leave',
-    half_day TEXT,
-    note TEXT,
-    FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
-  );
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    due_date TEXT,
-    status TEXT NOT NULL DEFAULT 'Pending Acceptance',
-    note TEXT,
-    FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
-  );
-`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
-const leaveColumns = db.prepare('PRAGMA table_info(leaves)').all().map(c => c.name);
-if (!leaveColumns.includes('half_day')) {
-  db.exec('ALTER TABLE leaves ADD COLUMN half_day TEXT');
-}
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS members (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS leaves (
+      id SERIAL PRIMARY KEY,
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'Leave',
+      half_day TEXT,
+      note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS tasks (
+      id SERIAL PRIMARY KEY,
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      status TEXT NOT NULL DEFAULT 'Pending Acceptance',
+      note TEXT,
+      reviewer_id INTEGER REFERENCES members(id)
+    );
+  `);
 
-const taskColumns = db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
-if (!taskColumns.includes('reviewer_id')) {
-  db.exec('ALTER TABLE tasks ADD COLUMN reviewer_id INTEGER REFERENCES members(id)');
+  const COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#43aa8b', '#f3722c', '#577590', '#ff6b6b', '#118ab2'];
+  const TEAM = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
+  for (const name of TEAM) {
+    const { rows } = await pool.query('SELECT 1 FROM members WHERE name = $1', [name]);
+    if (rows.length === 0) {
+      const { rows: countRows } = await pool.query('SELECT COUNT(*) AS c FROM members');
+      const color = COLORS[Number(countRows[0].c) % COLORS.length];
+      await pool.query('INSERT INTO members (name, color) VALUES ($1, $2)', [name, color]);
+    }
+  }
 }
 
 const COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#43aa8b', '#f3722c', '#577590', '#ff6b6b', '#118ab2'];
 
-const TEAM = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
-for (const name of TEAM) {
-  const exists = db.prepare('SELECT 1 FROM members WHERE name = ?').get(name);
-  if (!exists) {
-    const count = db.prepare('SELECT COUNT(*) AS c FROM members').get().c;
-    db.prepare('INSERT INTO members (name, color) VALUES (?, ?)').run(name, COLORS[count % COLORS.length]);
-  }
+async function getOrCreateMember(name) {
+  let { rows } = await pool.query('SELECT * FROM members WHERE name = $1', [name]);
+  if (rows.length > 0) return rows[0];
+  const { rows: countRows } = await pool.query('SELECT COUNT(*) AS c FROM members');
+  const color = COLORS[Number(countRows[0].c) % COLORS.length];
+  const { rows: inserted } = await pool.query(
+    'INSERT INTO members (name, color) VALUES ($1, $2) RETURNING *',
+    [name, color]
+  );
+  return inserted[0];
 }
 
-function findLeaveConflict(memberId, dueDate) {
+async function findLeaveConflict(memberId, dueDate) {
   if (!dueDate) return null;
-  return db.prepare(`
-    SELECT * FROM leaves
-    WHERE member_id = ? AND ? BETWEEN start_date AND end_date
-  `).get(memberId, dueDate) || null;
-}
-
-function getOrCreateMember(name) {
-  let row = db.prepare('SELECT * FROM members WHERE name = ?').get(name);
-  if (row) return row;
-  const count = db.prepare('SELECT COUNT(*) AS c FROM members').get().c;
-  const color = COLORS[count % COLORS.length];
-  const info = db.prepare('INSERT INTO members (name, color) VALUES (?, ?)').run(name, color);
-  return db.prepare('SELECT * FROM members WHERE id = ?').get(info.lastInsertRowid);
+  const { rows } = await pool.query(
+    'SELECT * FROM leaves WHERE member_id = $1 AND $2 BETWEEN start_date AND end_date',
+    [memberId, dueDate]
+  );
+  return rows[0] || null;
 }
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/members', (req, res) => {
-  res.json(db.prepare('SELECT * FROM members ORDER BY name').all());
-});
-
-app.get('/api/leaves', (req, res) => {
-  const rows = db.prepare(`
-    SELECT leaves.*, members.name AS member_name, members.color AS member_color
-    FROM leaves JOIN members ON leaves.member_id = members.id
-    ORDER BY start_date
-  `).all();
+app.get('/api/members', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM members ORDER BY name');
   res.json(rows);
 });
 
-app.post('/api/leaves', (req, res) => {
+app.get('/api/leaves', async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT leaves.*, members.name AS member_name, members.color AS member_color
+    FROM leaves JOIN members ON leaves.member_id = members.id
+    ORDER BY start_date
+  `);
+  res.json(rows);
+});
+
+app.post('/api/leaves', async (req, res) => {
   const { name, start_date, end_date, type, note, half_day } = req.body;
   if (!name || !start_date || !end_date) {
     return res.status(400).json({ error: 'name, start_date, end_date are required' });
@@ -94,13 +95,13 @@ app.post('/api/leaves', (req, res) => {
   if (half_day && start_date !== end_date) {
     return res.status(400).json({ error: 'half_day entries must have start_date === end_date' });
   }
-  const member = getOrCreateMember(name.trim());
+  const member = await getOrCreateMember(name.trim());
 
-  const conflicts = db.prepare(`
+  const { rows: conflicts } = await pool.query(`
     SELECT * FROM tasks
-    WHERE member_id = ? AND status != 'Done'
-      AND due_date IS NOT NULL AND due_date BETWEEN ? AND ?
-  `).all(member.id, start_date, end_date);
+    WHERE member_id = $1 AND status != 'Done'
+      AND due_date IS NOT NULL AND due_date BETWEEN $2 AND $3
+  `, [member.id, start_date, end_date]);
 
   if (conflicts.length > 0) {
     return res.status(409).json({
@@ -109,82 +110,87 @@ app.post('/api/leaves', (req, res) => {
     });
   }
 
-  const info = db.prepare(`
+  const { rows } = await pool.query(`
     INSERT INTO leaves (member_id, start_date, end_date, type, half_day, note)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(member.id, start_date, end_date, type || 'Leave', half_day || null, note || '');
-  res.json({ id: info.lastInsertRowid });
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+  `, [member.id, start_date, end_date, type || 'Leave', half_day || null, note || '']);
+  res.json({ id: rows[0].id });
 });
 
-app.delete('/api/leaves/:id', (req, res) => {
-  db.prepare('DELETE FROM leaves WHERE id = ?').run(req.params.id);
+app.delete('/api/leaves/:id', async (req, res) => {
+  await pool.query('DELETE FROM leaves WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
-app.get('/api/tasks', (req, res) => {
-  const rows = db.prepare(`
+app.get('/api/tasks', async (req, res) => {
+  const { rows } = await pool.query(`
     SELECT tasks.*, members.name AS member_name, members.color AS member_color,
            reviewers.name AS reviewer_name, reviewers.color AS reviewer_color
     FROM tasks
     JOIN members ON tasks.member_id = members.id
     LEFT JOIN members AS reviewers ON tasks.reviewer_id = reviewers.id
     ORDER BY (due_date IS NULL), due_date
-  `).all();
+  `);
   res.json(rows);
 });
 
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', async (req, res) => {
   const { name, title, due_date, status, note } = req.body;
   if (!name || !title) {
     return res.status(400).json({ error: 'name and title are required' });
   }
-  const member = getOrCreateMember(name.trim());
+  const member = await getOrCreateMember(name.trim());
 
-  const leaveConflict = findLeaveConflict(member.id, due_date);
+  const leaveConflict = await findLeaveConflict(member.id, due_date);
   if (leaveConflict) {
     return res.status(409).json({
       error: `${name} is on approved ${leaveConflict.type} from ${leaveConflict.start_date} to ${leaveConflict.end_date}. Pick a different due date or assignee.`
     });
   }
 
-  const info = db.prepare(`
+  const { rows } = await pool.query(`
     INSERT INTO tasks (member_id, title, due_date, status, note)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(member.id, title.trim(), due_date || null, status || 'Pending Acceptance', note || '');
-  res.json({ id: info.lastInsertRowid });
+    VALUES ($1, $2, $3, $4, $5) RETURNING id
+  `, [member.id, title.trim(), due_date || null, status || 'Pending Acceptance', note || '']);
+  res.json({ id: rows[0].id });
 });
 
-app.patch('/api/tasks/:id', (req, res) => {
+app.patch('/api/tasks/:id', async (req, res) => {
   const { status, name, reviewer_name } = req.body;
   if (!status && !name && !reviewer_name) {
     return res.status(400).json({ error: 'status, name, or reviewer_name is required' });
   }
 
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+  const task = taskRows[0];
   if (!task) return res.status(404).json({ error: 'task not found' });
 
   if (name) {
-    const member = getOrCreateMember(name.trim());
-    const leaveConflict = findLeaveConflict(member.id, task.due_date);
+    const member = await getOrCreateMember(name.trim());
+    const leaveConflict = await findLeaveConflict(member.id, task.due_date);
     if (leaveConflict) {
       return res.status(409).json({
         error: `${name} is on approved ${leaveConflict.type} from ${leaveConflict.start_date} to ${leaveConflict.end_date}. Pick a different assignee.`
       });
     }
-    db.prepare('UPDATE tasks SET member_id = ?, status = ?, reviewer_id = NULL WHERE id = ?')
-      .run(member.id, 'Pending Acceptance', req.params.id);
+    await pool.query(
+      'UPDATE tasks SET member_id = $1, status = $2, reviewer_id = NULL WHERE id = $3',
+      [member.id, 'Pending Acceptance', req.params.id]
+    );
     return res.json({ ok: true });
   }
 
   if (reviewer_name) {
-    const reviewer = getOrCreateMember(reviewer_name.trim());
-    db.prepare('UPDATE tasks SET reviewer_id = ?, status = ? WHERE id = ?')
-      .run(reviewer.id, 'In Review', req.params.id);
+    const reviewer = await getOrCreateMember(reviewer_name.trim());
+    await pool.query(
+      'UPDATE tasks SET reviewer_id = $1, status = $2 WHERE id = $3',
+      [reviewer.id, 'In Review', req.params.id]
+    );
     return res.json({ ok: true });
   }
 
   if (status === 'Accepted' || status === 'In Progress') {
-    const leaveConflict = findLeaveConflict(task.member_id, task.due_date);
+    const leaveConflict = await findLeaveConflict(task.member_id, task.due_date);
     if (leaveConflict) {
       return res.status(409).json({
         error: `You are on approved ${leaveConflict.type} from ${leaveConflict.start_date} to ${leaveConflict.end_date}, which covers this task's due date. Reassign it or change the due date first.`
@@ -198,17 +204,24 @@ app.patch('/api/tasks/:id', (req, res) => {
     });
   }
 
-  db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, req.params.id);
+  await pool.query('UPDATE tasks SET status = $1 WHERE id = $2', [status, req.params.id]);
   res.json({ ok: true });
 });
 
-app.delete('/api/tasks/:id', (req, res) => {
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+app.delete('/api/tasks/:id', async (req, res) => {
+  await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Team leave calendar running at http://localhost:${PORT}`);
-  console.log(`Teammates on the same network can use http://<your-ip>:${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Team leave calendar running at http://localhost:${PORT}`);
+      console.log(`Teammates on the same network can use http://<your-ip>:${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
