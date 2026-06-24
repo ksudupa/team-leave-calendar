@@ -78,25 +78,33 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(async (req, res, next) => {
-  await initDb();
-  next();
+  try {
+    await initDb();
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
-app.get('/api/members', async (req, res) => {
+function wrapAsync(fn) {
+  return (req, res, next) => fn(req, res, next).catch(next);
+}
+
+app.get('/api/members', wrapAsync(async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM members ORDER BY name');
   res.json(rows);
-});
+}));
 
-app.get('/api/leaves', async (req, res) => {
+app.get('/api/leaves', wrapAsync(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT leaves.*, members.name AS member_name, members.color AS member_color
     FROM leaves JOIN members ON leaves.member_id = members.id
     ORDER BY start_date
   `);
   res.json(rows);
-});
+}));
 
-app.post('/api/leaves', async (req, res) => {
+app.post('/api/leaves', wrapAsync(async (req, res) => {
   const { name, start_date, end_date, type, note, half_day } = req.body;
   if (!name || !start_date || !end_date) {
     return res.status(400).json({ error: 'name, start_date, end_date are required' });
@@ -124,14 +132,14 @@ app.post('/api/leaves', async (req, res) => {
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
   `, [member.id, start_date, end_date, type || 'Leave', half_day || null, note || '']);
   res.json({ id: rows[0].id });
-});
+}));
 
-app.delete('/api/leaves/:id', async (req, res) => {
+app.delete('/api/leaves/:id', wrapAsync(async (req, res) => {
   await pool.query('DELETE FROM leaves WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
-});
+}));
 
-app.get('/api/tasks', async (req, res) => {
+app.get('/api/tasks', wrapAsync(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT tasks.*, members.name AS member_name, members.color AS member_color,
            reviewers.name AS reviewer_name, reviewers.color AS reviewer_color
@@ -141,9 +149,9 @@ app.get('/api/tasks', async (req, res) => {
     ORDER BY (due_date IS NULL), due_date
   `);
   res.json(rows);
-});
+}));
 
-app.post('/api/tasks', async (req, res) => {
+app.post('/api/tasks', wrapAsync(async (req, res) => {
   const { name, title, due_date, status, note } = req.body;
   if (!name || !title) {
     return res.status(400).json({ error: 'name and title are required' });
@@ -162,9 +170,9 @@ app.post('/api/tasks', async (req, res) => {
     VALUES ($1, $2, $3, $4, $5) RETURNING id
   `, [member.id, title.trim(), due_date || null, status || 'Pending Acceptance', note || '']);
   res.json({ id: rows[0].id });
-});
+}));
 
-app.patch('/api/tasks/:id', async (req, res) => {
+app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
   const { status, name, reviewer_name } = req.body;
   if (!status && !name && !reviewer_name) {
     return res.status(400).json({ error: 'status, name, or reviewer_name is required' });
@@ -215,11 +223,16 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
   await pool.query('UPDATE tasks SET status = $1 WHERE id = $2', [status, req.params.id]);
   res.json({ ok: true });
-});
+}));
 
-app.delete('/api/tasks/:id', async (req, res) => {
+app.delete('/api/tasks/:id', wrapAsync(async (req, res) => {
   await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+}));
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: err.message });
 });
 
 module.exports = { app, initDb };
