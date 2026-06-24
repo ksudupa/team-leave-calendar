@@ -185,6 +185,14 @@
           </select>
         </div>
 
+        <div class="half-day-row">
+          <input type="checkbox" id="hourly_enabled" style="width:auto;" />
+          <label for="hourly_enabled" style="margin:0;">Hourly</label>
+          <input type="time" id="hourly_start" disabled style="flex:1;" />
+          <span style="font-size:12px;color:#777;">to</span>
+          <input type="time" id="hourly_end" disabled style="flex:1;" />
+        </div>
+
         <label>Note (optional)</label>
         <textarea id="note" rows="2" placeholder="Optional details"></textarea>
 
@@ -280,11 +288,16 @@ async function renderLegend(members) {
 }
 
 function formatLabel(l) {
-  const half = l.half_day ? ` (${l.half_day})` : '';
-  return `${l.type}${half}`;
+  if (l.half_day) return `${l.type} (${l.half_day})`;
+  if (l.start_time && l.end_time) return `${l.type} (${l.start_time}-${l.end_time})`;
+  return l.type;
 }
 
+let allLeaves = [];
+let editingLeaveId = null;
+
 async function renderUpcoming(leaves) {
+  allLeaves = leaves;
   const el = document.getElementById('upcoming');
   const today = new Date().toISOString().slice(0, 10);
   const relevant = leaves.filter(l => l.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
@@ -292,7 +305,10 @@ async function renderUpcoming(leaves) {
     ? relevant.map(l => `
       <div class="upcoming-item">
         <span><span class="dot" style="background:${l.member_color}"></span> <strong>${l.member_name}</strong> — ${formatLabel(l)}: ${l.start_date} to ${l.end_date}${l.note ? ' (' + l.note + ')' : ''}</span>
-        <button onclick="deleteLeave(${l.id})">Delete</button>
+        <span>
+          <button onclick="startEditLeave(${l.id})">Edit</button>
+          <button onclick="deleteLeave(${l.id})">Delete</button>
+        </span>
       </div>
     `).join('')
     : '<div style="font-size:13px;color:#888;">Nothing upcoming.</div>';
@@ -301,6 +317,32 @@ async function renderUpcoming(leaves) {
 async function deleteLeave(id) {
   await fetch('/api/leaves/' + id, { method: 'DELETE' });
   await refresh();
+}
+
+function startEditLeave(id) {
+  const l = allLeaves.find(x => x.id === id);
+  if (!l) return;
+  editingLeaveId = id;
+  document.getElementById('name').value = l.member_name;
+  document.getElementById('type').value = l.type;
+  document.getElementById('start_date').value = l.start_date;
+  document.getElementById('end_date').value = l.end_date;
+  document.getElementById('note').value = l.note || '';
+  document.getElementById('half_day_enabled').checked = !!l.half_day;
+  document.getElementById('hourly_enabled').checked = !!(l.start_time && l.end_time);
+  syncHalfDayAvailability();
+  if (l.half_day) document.getElementById('half_day_period').value = l.half_day;
+  if (l.start_time) document.getElementById('hourly_start').value = l.start_time;
+  if (l.end_time) document.getElementById('hourly_end').value = l.end_time;
+  document.querySelector('#leave-form button[type="submit"]').textContent = 'Update Entry';
+  document.querySelector('.tab-btn[data-tab="leave-tab"]').click();
+}
+
+function resetLeaveForm() {
+  editingLeaveId = null;
+  document.getElementById('leave-form').reset();
+  syncHalfDayAvailability();
+  document.querySelector('#leave-form button[type="submit"]').textContent = 'Add to Calendar';
 }
 
 async function fetchTasks() {
@@ -343,6 +385,37 @@ async function reassignTask(id, name) {
 const STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress', 'In Review', 'Done'];
 const MANUAL_STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress'];
 const TEAM_NAMES = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
+let editingTaskId = null;
+
+function startEditTask(id) {
+  editingTaskId = id;
+  refresh();
+}
+
+function cancelEditTask() {
+  editingTaskId = null;
+  refresh();
+}
+
+async function saveTaskEdit(id) {
+  const title = document.getElementById(`edit_title_${id}`).value.trim();
+  const due_date = document.getElementById(`edit_due_${id}`).value;
+  const note = document.getElementById(`edit_note_${id}`).value.trim();
+  if (!title) { showModal('Title cannot be empty.'); return; }
+
+  const res = await fetch('/api/tasks/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, due_date, note })
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    showModal(data.error, 'Cannot Update Task');
+    return;
+  }
+  editingTaskId = null;
+  await refresh();
+}
 
 async function sendForReview(id, reviewerName) {
   if (!reviewerName) return;
@@ -365,7 +438,18 @@ function renderTasks(tasks) {
     return `
       <div class="task-col">
         <h3>${status} (${items.length})</h3>
-        ${items.length ? items.map(t => `
+        ${items.length ? items.map(t => t.id === editingTaskId ? `
+          <div class="task-item">
+            <label>Title</label>
+            <input type="text" id="edit_title_${t.id}" value="${t.title.replace(/"/g, '&quot;')}" />
+            <label>Due Date</label>
+            <input type="date" id="edit_due_${t.id}" value="${t.due_date || ''}" />
+            <label>Note</label>
+            <textarea id="edit_note_${t.id}" rows="2">${t.note || ''}</textarea>
+            <button onclick="saveTaskEdit(${t.id})">Save</button>
+            <button onclick="cancelEditTask()">Cancel</button>
+          </div>
+        ` : `
           <div class="task-item">
             <div class="task-top">
               <span><span class="dot" style="background:${t.member_color}"></span> <strong>${t.member_name}</strong>: ${t.title}</span>
@@ -392,6 +476,7 @@ function renderTasks(tasks) {
                 ${TEAM_NAMES.filter(n => n !== t.member_name).map(n => `<option value="${n}">${n}</option>`).join('')}
               </select>
             ` : ''}
+            ${t.status !== 'Done' ? `<button onclick="startEditTask(${t.id})">Edit</button>` : ''}
             <button onclick="deleteTask(${t.id})">Delete</button>
           </div>
         `).join('') : '<div style="font-size:12px;color:#999;">None</div>'}
@@ -435,17 +520,32 @@ async function refresh() {
 function syncHalfDayAvailability() {
   const start_date = document.getElementById('start_date').value;
   const end_date = document.getElementById('end_date').value;
-  const checkbox = document.getElementById('half_day_enabled');
+  const halfCheckbox = document.getElementById('half_day_enabled');
   const period = document.getElementById('half_day_period');
+  const hourlyCheckbox = document.getElementById('hourly_enabled');
+  const hourlyStart = document.getElementById('hourly_start');
+  const hourlyEnd = document.getElementById('hourly_end');
   const singleDay = start_date && end_date && start_date === end_date;
-  checkbox.disabled = !singleDay;
-  if (!singleDay) checkbox.checked = false;
-  period.disabled = !checkbox.checked;
+
+  halfCheckbox.disabled = !singleDay;
+  hourlyCheckbox.disabled = !singleDay;
+  if (!singleDay) {
+    halfCheckbox.checked = false;
+    hourlyCheckbox.checked = false;
+  }
+
+  if (halfCheckbox.checked) hourlyCheckbox.checked = false;
+  if (hourlyCheckbox.checked) halfCheckbox.checked = false;
+
+  period.disabled = !halfCheckbox.checked;
+  hourlyStart.disabled = !hourlyCheckbox.checked;
+  hourlyEnd.disabled = !hourlyCheckbox.checked;
 }
 
 document.getElementById('start_date').addEventListener('change', syncHalfDayAvailability);
 document.getElementById('end_date').addEventListener('change', syncHalfDayAvailability);
 document.getElementById('half_day_enabled').addEventListener('change', syncHalfDayAvailability);
+document.getElementById('hourly_enabled').addEventListener('change', syncHalfDayAvailability);
 
 document.getElementById('leave-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -457,25 +557,30 @@ document.getElementById('leave-form').addEventListener('submit', async (e) => {
   const half_day = document.getElementById('half_day_enabled').checked
     ? document.getElementById('half_day_period').value
     : null;
+  const hourly = document.getElementById('hourly_enabled').checked;
+  const start_time = hourly ? document.getElementById('hourly_start').value : null;
+  const end_time = hourly ? document.getElementById('hourly_end').value : null;
 
   if (!name || !start_date || !end_date) return;
   if (end_date < start_date) { showModal('End date must be on/after start date.'); return; }
+  if (hourly && (!start_time || !end_time)) { showModal('Please set both start and end time for hourly leave.'); return; }
 
-  const res = await fetch('/api/leaves', {
-    method: 'POST',
+  const url = editingLeaveId ? `/api/leaves/${editingLeaveId}` : '/api/leaves';
+  const method = editingLeaveId ? 'PATCH' : 'POST';
+  const res = await fetch(url, {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, type, start_date, end_date, note, half_day })
+    body: JSON.stringify({ name, type, start_date, end_date, note, half_day, start_time, end_time })
   });
 
   if (!res.ok) {
     const data = await res.json();
     const details = (data.conflicts || []).map(c => `- ${c.title} (due ${c.due_date}, ${c.status})`).join('\n');
-    showModal(`${data.error}\n\n${details}`, 'Cannot Book Leave');
+    showModal(`${data.error}\n\n${details}`, editingLeaveId ? 'Cannot Update Entry' : 'Cannot Book Leave');
     return;
   }
 
-  e.target.reset();
-  syncHalfDayAvailability();
+  resetLeaveForm();
   await refresh();
 });
 

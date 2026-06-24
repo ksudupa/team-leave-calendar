@@ -27,6 +27,8 @@ function initDb() {
           end_date TEXT NOT NULL,
           type TEXT NOT NULL DEFAULT 'Leave',
           half_day TEXT,
+          start_time TEXT,
+          end_time TEXT,
           note TEXT
         );
         CREATE TABLE IF NOT EXISTS tasks (
@@ -38,6 +40,11 @@ function initDb() {
           note TEXT,
           reviewer_id INTEGER REFERENCES members(id)
         );
+      `);
+
+      await pool.query(`
+        ALTER TABLE leaves ADD COLUMN IF NOT EXISTS start_time TEXT;
+        ALTER TABLE leaves ADD COLUMN IF NOT EXISTS end_time TEXT;
       `);
 
       for (const name of TEAM) {
@@ -105,12 +112,21 @@ app.get('/api/leaves', wrapAsync(async (req, res) => {
 }));
 
 app.post('/api/leaves', wrapAsync(async (req, res) => {
-  const { name, start_date, end_date, type, note, half_day } = req.body;
+  const { name, start_date, end_date, type, note, half_day, start_time, end_time } = req.body;
   if (!name || !start_date || !end_date) {
     return res.status(400).json({ error: 'name, start_date, end_date are required' });
   }
-  if (half_day && start_date !== end_date) {
-    return res.status(400).json({ error: 'half_day entries must have start_date === end_date' });
+  if ((half_day || (start_time && end_time)) && start_date !== end_date) {
+    return res.status(400).json({ error: 'half-day and hourly entries must have start_date === end_date' });
+  }
+  if (half_day && start_time && end_time) {
+    return res.status(400).json({ error: 'Choose either half-day or hourly, not both' });
+  }
+  if ((start_time && !end_time) || (!start_time && end_time)) {
+    return res.status(400).json({ error: 'Both start_time and end_time are required for hourly leave' });
+  }
+  if (start_time && end_time && end_time <= start_time) {
+    return res.status(400).json({ error: 'end_time must be after start_time' });
   }
   const member = await getOrCreateMember(name.trim());
 
@@ -128,10 +144,38 @@ app.post('/api/leaves', wrapAsync(async (req, res) => {
   }
 
   const { rows } = await pool.query(`
-    INSERT INTO leaves (member_id, start_date, end_date, type, half_day, note)
-    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-  `, [member.id, start_date, end_date, type || 'Leave', half_day || null, note || '']);
+    INSERT INTO leaves (member_id, start_date, end_date, type, half_day, start_time, end_time, note)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+  `, [member.id, start_date, end_date, type || 'Leave', half_day || null, start_time || null, end_time || null, note || '']);
   res.json({ id: rows[0].id });
+}));
+
+app.patch('/api/leaves/:id', wrapAsync(async (req, res) => {
+  const { start_date, end_date, type, note, half_day, start_time, end_time } = req.body;
+  if (!start_date || !end_date) {
+    return res.status(400).json({ error: 'start_date and end_date are required' });
+  }
+  if ((half_day || (start_time && end_time)) && start_date !== end_date) {
+    return res.status(400).json({ error: 'half-day and hourly entries must have start_date === end_date' });
+  }
+  if (half_day && start_time && end_time) {
+    return res.status(400).json({ error: 'Choose either half-day or hourly, not both' });
+  }
+  if ((start_time && !end_time) || (!start_time && end_time)) {
+    return res.status(400).json({ error: 'Both start_time and end_time are required for hourly leave' });
+  }
+  if (start_time && end_time && end_time <= start_time) {
+    return res.status(400).json({ error: 'end_time must be after start_time' });
+  }
+
+  const { rows } = await pool.query(`
+    UPDATE leaves
+    SET start_date = $1, end_date = $2, type = $3, half_day = $4, start_time = $5, end_time = $6, note = $7
+    WHERE id = $8 RETURNING id
+  `, [start_date, end_date, type || 'Leave', half_day || null, start_time || null, end_time || null, note || '', req.params.id]);
+
+  if (rows.length === 0) return res.status(404).json({ error: 'leave not found' });
+  res.json({ ok: true });
 }));
 
 app.delete('/api/leaves/:id', wrapAsync(async (req, res) => {
@@ -173,14 +217,32 @@ app.post('/api/tasks', wrapAsync(async (req, res) => {
 }));
 
 app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
-  const { status, name, reviewer_name } = req.body;
-  if (!status && !name && !reviewer_name) {
-    return res.status(400).json({ error: 'status, name, or reviewer_name is required' });
+  const { status, name, reviewer_name, title, due_date, note } = req.body;
+  if (!status && !name && !reviewer_name && !title && due_date === undefined && note === undefined) {
+    return res.status(400).json({ error: 'no update fields provided' });
   }
 
   const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
   const task = taskRows[0];
   if (!task) return res.status(404).json({ error: 'task not found' });
+
+  if (title || due_date !== undefined || note !== undefined) {
+    if (task.status === 'Done') {
+      return res.status(409).json({ error: 'Completed tasks cannot be edited.' });
+    }
+    const newDueDate = due_date !== undefined ? due_date : task.due_date;
+    const leaveConflict = await findLeaveConflict(task.member_id, newDueDate);
+    if (leaveConflict) {
+      return res.status(409).json({
+        error: `This due date falls within an approved ${leaveConflict.type} (${leaveConflict.start_date} to ${leaveConflict.end_date}) for the assignee.`
+      });
+    }
+    await pool.query(
+      'UPDATE tasks SET title = $1, due_date = $2, note = $3 WHERE id = $4',
+      [title || task.title, newDueDate || null, note !== undefined ? note : task.note, req.params.id]
+    );
+    return res.json({ ok: true });
+  }
 
   if (name) {
     const member = await getOrCreateMember(name.trim());
