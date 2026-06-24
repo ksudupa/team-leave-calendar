@@ -7,20 +7,27 @@
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 <style>
+  :root {
+    --rsm-red: #9c1238;
+    --rsm-red-dark: #730d29;
+    --rsm-grey: #58595b;
+    --rsm-light-grey: #f2f0ee;
+  }
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     margin: 0;
-    background: #f5f6f8;
+    background: var(--rsm-light-grey);
     color: #1d1d1f;
   }
   header {
-    background: #1d2433;
+    background: var(--rsm-red);
     color: white;
     padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-bottom: 4px solid var(--rsm-red-dark);
   }
   header h1 { margin: 0; font-size: 20px; }
   .layout {
@@ -56,18 +63,66 @@
     padding: 10px;
     border: none;
     border-radius: 6px;
-    background: #2a5bd7;
+    background: var(--rsm-red);
     color: white;
     font-size: 14px;
     cursor: pointer;
   }
-  button:hover { background: #1f47ad; }
+  button:hover { background: var(--rsm-red-dark); }
   #calendar-container { flex: 1; background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
   .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
   .upcoming-item { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-  .upcoming-item button { width: auto; padding: 2px 8px; margin: 0; background: #e63946; font-size: 11px; }
+  .upcoming-item button { width: auto; padding: 2px 8px; margin: 0; background: var(--rsm-grey); font-size: 11px; }
   .fc-event { cursor: pointer; }
+  .half-day-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .half-day-row label { margin: 0; }
+  .half-day-row select { width: auto; flex: 1; }
+  .task-board { display: flex; flex-direction: column; gap: 14px; }
+  .task-col h3 { font-size: 13px; margin: 0 0 8px; color: #666; text-transform: uppercase; letter-spacing: 0.04em; }
+  .task-item { font-size: 13px; padding: 8px; border-radius: 6px; background: #f7f8fa; margin-bottom: 6px; }
+  .task-item .task-top { display: flex; justify-content: space-between; align-items: center; }
+  .task-item .task-meta { color: #777; font-size: 11px; margin-top: 4px; }
+  .task-item select { width: auto; font-size: 11px; padding: 2px 4px; margin-top: 6px; }
+  .task-item button { width: auto; padding: 2px 8px; margin: 6px 0 0 6px; background: var(--rsm-grey); font-size: 11px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--rsm-light-grey); border-radius: 8px; padding: 4px; border: 1px solid #e2dfdb; }
+  .tab-btn {
+    flex: 1;
+    margin: 0;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--rsm-grey);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--rsm-red); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal-box {
+    background: white;
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+    border-top: 5px solid var(--rsm-red);
+  }
+  .modal-box h3 { margin: 0 0 12px; color: var(--rsm-red-dark); font-size: 16px; }
+  .modal-box p { margin: 0 0 6px; font-size: 14px; color: #333; white-space: pre-wrap; }
+  .modal-box button { background: var(--rsm-red); }
 </style>
 </head>
 <body>
@@ -76,20 +131,42 @@
   <span id="member-count" style="font-size:13px; opacity:0.8;"></span>
 </header>
 
+<div class="modal-overlay hidden" id="modal-overlay">
+  <div class="modal-box">
+    <h3 id="modal-title">Notice</h3>
+    <div id="modal-body"></div>
+    <button onclick="closeModal()">OK</button>
+  </div>
+</div>
+
 <div class="layout">
   <div class="sidebar">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="leave-tab">Leave & Availability</button>
+      <button class="tab-btn" data-tab="task-tab">Tasks</button>
+    </div>
+
+    <div class="tab-panel active" id="leave-tab">
     <div class="card">
-      <h2>Book Leave / Mark Unavailable</h2>
+      <h2>Update Work Mode / Availability</h2>
       <form id="leave-form">
         <label>Your Name</label>
-        <input type="text" id="name" required placeholder="e.g. Karthi" />
+        <select id="name" required>
+          <option value="" disabled selected>Select your name</option>
+          <option>Jasmine</option>
+          <option>Esri</option>
+          <option>Godwin</option>
+          <option>Richardo</option>
+          <option>Kaushal</option>
+        </select>
 
-        <label>Type</label>
+        <label>Status</label>
         <select id="type">
+          <option>In Office</option>
+          <option>Remote</option>
+          <option>In Bayle</option>
           <option>Leave</option>
           <option>Sick</option>
-          <option>WFH</option>
-          <option>Travel</option>
           <option>Other</option>
         </select>
 
@@ -98,6 +175,15 @@
 
         <label>End Date</label>
         <input type="date" id="end_date" required />
+
+        <div class="half-day-row">
+          <input type="checkbox" id="half_day_enabled" style="width:auto;" />
+          <label for="half_day_enabled" style="margin:0;">Half day</label>
+          <select id="half_day_period" disabled>
+            <option value="AM">Morning (AM)</option>
+            <option value="PM">Afternoon (PM)</option>
+          </select>
+        </div>
 
         <label>Note (optional)</label>
         <textarea id="note" rows="2" placeholder="Optional details"></textarea>
@@ -115,6 +201,40 @@
       <h2>Upcoming / Active</h2>
       <div id="upcoming"></div>
     </div>
+    </div>
+
+    <div class="tab-panel" id="task-tab">
+    <div class="card">
+      <h2>Assign a Task</h2>
+      <form id="task-form">
+        <label>Assign To</label>
+        <select id="task_name" required>
+          <option value="" disabled selected>Select team member</option>
+          <option>Jasmine</option>
+          <option>Esri</option>
+          <option>Godwin</option>
+          <option>Richardo</option>
+          <option>Kaushal</option>
+        </select>
+
+        <label>Task</label>
+        <input type="text" id="task_title" required placeholder="e.g. Prepare client deck" />
+
+        <label>Due Date (optional)</label>
+        <input type="date" id="task_due_date" />
+
+        <label>Notes (optional)</label>
+        <textarea id="task_note" rows="2" placeholder="Optional details"></textarea>
+
+        <button type="submit">Add Task</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Team Tasks</h2>
+      <div class="task-board" id="task-board"></div>
+    </div>
+    </div>
   </div>
 
   <div id="calendar-container">
@@ -124,6 +244,16 @@
 
 <script>
 let calendar;
+
+function showModal(message, title) {
+  document.getElementById('modal-title').textContent = title || 'Notice';
+  document.getElementById('modal-body').innerHTML = `<p>${message}</p>`;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
 
 async function fetchMembers() {
   const res = await fetch('/api/members');
@@ -149,6 +279,11 @@ async function renderLegend(members) {
   document.getElementById('member-count').textContent = members.length ? `${members.length} member(s)` : '';
 }
 
+function formatLabel(l) {
+  const half = l.half_day ? ` (${l.half_day})` : '';
+  return `${l.type}${half}`;
+}
+
 async function renderUpcoming(leaves) {
   const el = document.getElementById('upcoming');
   const today = new Date().toISOString().slice(0, 10);
@@ -156,7 +291,7 @@ async function renderUpcoming(leaves) {
   el.innerHTML = relevant.length
     ? relevant.map(l => `
       <div class="upcoming-item">
-        <span><span class="dot" style="background:${l.member_color}"></span> <strong>${l.member_name}</strong> — ${l.type}: ${l.start_date} to ${l.end_date}${l.note ? ' (' + l.note + ')' : ''}</span>
+        <span><span class="dot" style="background:${l.member_color}"></span> <strong>${l.member_name}</strong> — ${formatLabel(l)}: ${l.start_date} to ${l.end_date}${l.note ? ' (' + l.note + ')' : ''}</span>
         <button onclick="deleteLeave(${l.id})">Delete</button>
       </div>
     `).join('')
@@ -168,23 +303,122 @@ async function deleteLeave(id) {
   await refresh();
 }
 
+async function fetchTasks() {
+  const res = await fetch('/api/tasks');
+  return res.json();
+}
+
+async function deleteTask(id) {
+  await fetch('/api/tasks/' + id, { method: 'DELETE' });
+  await refresh();
+}
+
+async function updateTaskStatus(id, status) {
+  const res = await fetch('/api/tasks/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    showModal(data.error, 'Cannot Update Task');
+  }
+  await refresh();
+}
+
+async function reassignTask(id, name) {
+  if (!name) return;
+  const res = await fetch('/api/tasks/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    showModal(data.error, 'Cannot Reassign Task');
+  }
+  await refresh();
+}
+
+const STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress', 'Done'];
+const TEAM_NAMES = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
+
+function renderTasks(tasks) {
+  const el = document.getElementById('task-board');
+  el.innerHTML = STATUSES.map(status => {
+    const items = tasks.filter(t => t.status === status);
+    return `
+      <div class="task-col">
+        <h3>${status} (${items.length})</h3>
+        ${items.length ? items.map(t => `
+          <div class="task-item">
+            <div class="task-top">
+              <span><span class="dot" style="background:${t.member_color}"></span> <strong>${t.member_name}</strong>: ${t.title}</span>
+            </div>
+            ${t.due_date ? `<div class="task-meta">Due ${t.due_date}</div>` : ''}
+            ${t.note ? `<div class="task-meta">${t.note}</div>` : ''}
+            ${t.status === 'Pending Acceptance' ? `<button onclick="updateTaskStatus(${t.id}, 'Accepted')">Accept</button>` : ''}
+            <select onchange="updateTaskStatus(${t.id}, this.value)">
+              ${STATUSES.map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+            <select onchange="reassignTask(${t.id}, this.value); this.selectedIndex = 0;">
+              <option value="">Reassign to...</option>
+              ${TEAM_NAMES.filter(n => n !== t.member_name).map(n => `<option value="${n}">${n}</option>`).join('')}
+            </select>
+            <button onclick="deleteTask(${t.id})">Delete</button>
+          </div>
+        `).join('') : '<div style="font-size:12px;color:#999;">None</div>'}
+      </div>
+    `;
+  }).join('');
+}
+
 async function refresh() {
-  const [members, leaves] = await Promise.all([fetchMembers(), fetchLeaves()]);
+  const [members, leaves, tasks] = await Promise.all([fetchMembers(), fetchLeaves(), fetchTasks()]);
   renderLegend(members);
   renderUpcoming(leaves);
+  renderTasks(tasks);
   calendar.removeAllEvents();
   leaves.forEach(l => {
     calendar.addEvent({
-      id: l.id,
-      title: `${l.member_name} (${l.type})`,
+      id: 'leave-' + l.id,
+      title: `${l.member_name} (${formatLabel(l)})`,
       start: l.start_date,
       end: toEventEnd(l.end_date),
       color: l.member_color,
       allDay: true,
-      extendedProps: { note: l.note }
+      extendedProps: { note: l.note, kind: 'leave' }
+    });
+  });
+  tasks.filter(t => t.due_date).forEach(t => {
+    calendar.addEvent({
+      id: 'task-' + t.id,
+      title: `📌 ${t.member_name}: ${t.title} (${t.status})`,
+      start: t.due_date,
+      allDay: true,
+      backgroundColor: 'white',
+      borderColor: t.member_color,
+      textColor: t.member_color,
+      classNames: ['task-event'],
+      extendedProps: { note: t.note, kind: 'task' }
     });
   });
 }
+
+function syncHalfDayAvailability() {
+  const start_date = document.getElementById('start_date').value;
+  const end_date = document.getElementById('end_date').value;
+  const checkbox = document.getElementById('half_day_enabled');
+  const period = document.getElementById('half_day_period');
+  const singleDay = start_date && end_date && start_date === end_date;
+  checkbox.disabled = !singleDay;
+  if (!singleDay) checkbox.checked = false;
+  period.disabled = !checkbox.checked;
+}
+
+document.getElementById('start_date').addEventListener('change', syncHalfDayAvailability);
+document.getElementById('end_date').addEventListener('change', syncHalfDayAvailability);
+document.getElementById('half_day_enabled').addEventListener('change', syncHalfDayAvailability);
 
 document.getElementById('leave-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -193,18 +427,63 @@ document.getElementById('leave-form').addEventListener('submit', async (e) => {
   const start_date = document.getElementById('start_date').value;
   const end_date = document.getElementById('end_date').value;
   const note = document.getElementById('note').value.trim();
+  const half_day = document.getElementById('half_day_enabled').checked
+    ? document.getElementById('half_day_period').value
+    : null;
 
   if (!name || !start_date || !end_date) return;
-  if (end_date < start_date) { alert('End date must be on/after start date.'); return; }
+  if (end_date < start_date) { showModal('End date must be on/after start date.'); return; }
 
-  await fetch('/api/leaves', {
+  const res = await fetch('/api/leaves', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, type, start_date, end_date, note })
+    body: JSON.stringify({ name, type, start_date, end_date, note, half_day })
   });
+
+  if (!res.ok) {
+    const data = await res.json();
+    const details = (data.conflicts || []).map(c => `- ${c.title} (due ${c.due_date}, ${c.status})`).join('\n');
+    showModal(`${data.error}\n\n${details}`, 'Cannot Book Leave');
+    return;
+  }
+
+  e.target.reset();
+  syncHalfDayAvailability();
+  await refresh();
+});
+
+document.getElementById('task-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('task_name').value;
+  const title = document.getElementById('task_title').value.trim();
+  const due_date = document.getElementById('task_due_date').value;
+  const note = document.getElementById('task_note').value.trim();
+
+  if (!name || !title) return;
+
+  const res = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, title, due_date, note })
+  });
+
+  if (!res.ok) {
+    const data = await res.json();
+    showModal(data.error, 'Cannot Assign Task');
+    return;
+  }
 
   e.target.reset();
   await refresh();
+});
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -215,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
     headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,dayGridWeek,listMonth' },
     eventClick: (info) => {
       const note = info.event.extendedProps.note;
-      if (note) alert('Note: ' + note);
+      if (note) showModal(note, 'Note');
     }
   });
   calendar.render();
