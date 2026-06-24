@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
 <style>
   :root {
     --fastned-green: #00e8ae;
@@ -633,16 +634,26 @@ document.addEventListener('DOMContentLoaded', () => {
   calendar.render();
   refresh();
 
-  setInterval(() => {
+  function maybeRefresh() {
     if (editingTaskId !== null || editingLeaveId !== null) return;
     refresh();
-  }, 15000);
+  }
+
+  setInterval(maybeRefresh, 30000);
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && editingTaskId === null && editingLeaveId === null) {
-      refresh();
-    }
+    if (!document.hidden) maybeRefresh();
   });
+
+  fetch('/api/pusher-config')
+    .then(res => res.json())
+    .then(config => {
+      if (!config.enabled) return;
+      const pusherClient = new Pusher(config.key, { cluster: config.cluster });
+      const channel = pusherClient.subscribe('team-calendar');
+      channel.bind('update', maybeRefresh);
+    })
+    .catch(() => {});
 });
 </script>
 </body>

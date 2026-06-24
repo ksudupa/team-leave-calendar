@@ -1,11 +1,27 @@
 const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
+const Pusher = require('pusher');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
+
+const pusher = process.env.PUSHER_APP_ID
+  ? new Pusher({
+      appId: process.env.PUSHER_APP_ID,
+      key: process.env.PUSHER_KEY,
+      secret: process.env.PUSHER_SECRET,
+      cluster: process.env.PUSHER_CLUSTER,
+      useTLS: true
+    })
+  : null;
+
+function notifyChange() {
+  if (!pusher) return;
+  pusher.trigger('team-calendar', 'update', {}).catch(err => console.error('Pusher trigger failed:', err));
+}
 
 const COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#43aa8b', '#f3722c', '#577590', '#ff6b6b', '#118ab2'];
 const TEAM = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
@@ -97,6 +113,11 @@ function wrapAsync(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
 }
 
+app.get('/api/pusher-config', (req, res) => {
+  if (!process.env.PUSHER_APP_ID) return res.json({ enabled: false });
+  res.json({ enabled: true, key: process.env.PUSHER_KEY, cluster: process.env.PUSHER_CLUSTER });
+});
+
 app.get('/api/members', wrapAsync(async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM members ORDER BY name');
   res.json(rows);
@@ -147,6 +168,7 @@ app.post('/api/leaves', wrapAsync(async (req, res) => {
     INSERT INTO leaves (member_id, start_date, end_date, type, half_day, start_time, end_time, note)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
   `, [member.id, start_date, end_date, type || 'Leave', half_day || null, start_time || null, end_time || null, note || '']);
+  notifyChange();
   res.json({ id: rows[0].id });
 }));
 
@@ -175,11 +197,13 @@ app.patch('/api/leaves/:id', wrapAsync(async (req, res) => {
   `, [start_date, end_date, type || 'Leave', half_day || null, start_time || null, end_time || null, note || '', req.params.id]);
 
   if (rows.length === 0) return res.status(404).json({ error: 'leave not found' });
+  notifyChange();
   res.json({ ok: true });
 }));
 
 app.delete('/api/leaves/:id', wrapAsync(async (req, res) => {
   await pool.query('DELETE FROM leaves WHERE id = $1', [req.params.id]);
+  notifyChange();
   res.json({ ok: true });
 }));
 
@@ -213,6 +237,7 @@ app.post('/api/tasks', wrapAsync(async (req, res) => {
     INSERT INTO tasks (member_id, title, due_date, status, note)
     VALUES ($1, $2, $3, $4, $5) RETURNING id
   `, [member.id, title.trim(), due_date || null, status || 'Pending Acceptance', note || '']);
+  notifyChange();
   res.json({ id: rows[0].id });
 }));
 
@@ -241,6 +266,7 @@ app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
       'UPDATE tasks SET title = $1, due_date = $2, note = $3 WHERE id = $4',
       [title || task.title, newDueDate || null, note !== undefined ? note : task.note, req.params.id]
     );
+    notifyChange();
     return res.json({ ok: true });
   }
 
@@ -256,6 +282,7 @@ app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
       'UPDATE tasks SET member_id = $1, status = $2, reviewer_id = NULL WHERE id = $3',
       [member.id, 'Pending Acceptance', req.params.id]
     );
+    notifyChange();
     return res.json({ ok: true });
   }
 
@@ -265,6 +292,7 @@ app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
       'UPDATE tasks SET reviewer_id = $1, status = $2 WHERE id = $3',
       [reviewer.id, 'In Review', req.params.id]
     );
+    notifyChange();
     return res.json({ ok: true });
   }
 
@@ -284,11 +312,13 @@ app.patch('/api/tasks/:id', wrapAsync(async (req, res) => {
   }
 
   await pool.query('UPDATE tasks SET status = $1 WHERE id = $2', [status, req.params.id]);
+  notifyChange();
   res.json({ ok: true });
 }));
 
 app.delete('/api/tasks/:id', wrapAsync(async (req, res) => {
   await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+  notifyChange();
   res.json({ ok: true });
 }));
 
