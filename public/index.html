@@ -340,8 +340,23 @@ async function reassignTask(id, name) {
   await refresh();
 }
 
-const STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress', 'Done'];
+const STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress', 'In Review', 'Done'];
+const MANUAL_STATUSES = ['Pending Acceptance', 'Accepted', 'In Progress'];
 const TEAM_NAMES = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
+
+async function sendForReview(id, reviewerName) {
+  if (!reviewerName) return;
+  const res = await fetch('/api/tasks/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviewer_name: reviewerName })
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    showModal(data.error, 'Cannot Send for Review');
+  }
+  await refresh();
+}
 
 function renderTasks(tasks) {
   const el = document.getElementById('task-board');
@@ -357,14 +372,26 @@ function renderTasks(tasks) {
             </div>
             ${t.due_date ? `<div class="task-meta">Due ${t.due_date}</div>` : ''}
             ${t.note ? `<div class="task-meta">${t.note}</div>` : ''}
+            ${t.status === 'In Review' ? `<div class="task-meta">Reviewer: ${t.reviewer_name || '-'}</div>` : ''}
             ${t.status === 'Pending Acceptance' ? `<button onclick="updateTaskStatus(${t.id}, 'Accepted')">Accept</button>` : ''}
-            <select onchange="updateTaskStatus(${t.id}, this.value)">
-              ${STATUSES.map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}
-            </select>
-            <select onchange="reassignTask(${t.id}, this.value); this.selectedIndex = 0;">
-              <option value="">Reassign to...</option>
-              ${TEAM_NAMES.filter(n => n !== t.member_name).map(n => `<option value="${n}">${n}</option>`).join('')}
-            </select>
+            ${t.status === 'In Review' ? `<button onclick="updateTaskStatus(${t.id}, 'Done')">Mark Reviewed & Complete</button>` : ''}
+            ${MANUAL_STATUSES.includes(t.status) ? `
+              <select onchange="updateTaskStatus(${t.id}, this.value)">
+                ${MANUAL_STATUSES.map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            ` : ''}
+            ${t.status === 'In Progress' ? `
+              <select onchange="sendForReview(${t.id}, this.value); this.selectedIndex = 0;">
+                <option value="">Send for review to...</option>
+                ${TEAM_NAMES.filter(n => n !== t.member_name).map(n => `<option value="${n}">${n}</option>`).join('')}
+              </select>
+            ` : ''}
+            ${t.status !== 'Done' ? `
+              <select onchange="reassignTask(${t.id}, this.value); this.selectedIndex = 0;">
+                <option value="">Reassign to...</option>
+                ${TEAM_NAMES.filter(n => n !== t.member_name).map(n => `<option value="${n}">${n}</option>`).join('')}
+              </select>
+            ` : ''}
             <button onclick="deleteTask(${t.id})">Delete</button>
           </div>
         `).join('') : '<div style="font-size:12px;color:#999;">None</div>'}

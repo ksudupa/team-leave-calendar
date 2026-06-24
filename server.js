@@ -36,6 +36,11 @@ if (!leaveColumns.includes('half_day')) {
   db.exec('ALTER TABLE leaves ADD COLUMN half_day TEXT');
 }
 
+const taskColumns = db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
+if (!taskColumns.includes('reviewer_id')) {
+  db.exec('ALTER TABLE tasks ADD COLUMN reviewer_id INTEGER REFERENCES members(id)');
+}
+
 const COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#43aa8b', '#f3722c', '#577590', '#ff6b6b', '#118ab2'];
 
 const TEAM = ['Jasmine', 'Esri', 'Godwin', 'Richardo', 'Kaushal'];
@@ -118,8 +123,11 @@ app.delete('/api/leaves/:id', (req, res) => {
 
 app.get('/api/tasks', (req, res) => {
   const rows = db.prepare(`
-    SELECT tasks.*, members.name AS member_name, members.color AS member_color
-    FROM tasks JOIN members ON tasks.member_id = members.id
+    SELECT tasks.*, members.name AS member_name, members.color AS member_color,
+           reviewers.name AS reviewer_name, reviewers.color AS reviewer_color
+    FROM tasks
+    JOIN members ON tasks.member_id = members.id
+    LEFT JOIN members AS reviewers ON tasks.reviewer_id = reviewers.id
     ORDER BY (due_date IS NULL), due_date
   `).all();
   res.json(rows);
@@ -147,8 +155,10 @@ app.post('/api/tasks', (req, res) => {
 });
 
 app.patch('/api/tasks/:id', (req, res) => {
-  const { status, name } = req.body;
-  if (!status && !name) return res.status(400).json({ error: 'status or name is required' });
+  const { status, name, reviewer_name } = req.body;
+  if (!status && !name && !reviewer_name) {
+    return res.status(400).json({ error: 'status, name, or reviewer_name is required' });
+  }
 
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'task not found' });
@@ -161,8 +171,15 @@ app.patch('/api/tasks/:id', (req, res) => {
         error: `${name} is on approved ${leaveConflict.type} from ${leaveConflict.start_date} to ${leaveConflict.end_date}. Pick a different assignee.`
       });
     }
-    db.prepare('UPDATE tasks SET member_id = ?, status = ? WHERE id = ?')
+    db.prepare('UPDATE tasks SET member_id = ?, status = ?, reviewer_id = NULL WHERE id = ?')
       .run(member.id, 'Pending Acceptance', req.params.id);
+    return res.json({ ok: true });
+  }
+
+  if (reviewer_name) {
+    const reviewer = getOrCreateMember(reviewer_name.trim());
+    db.prepare('UPDATE tasks SET reviewer_id = ?, status = ? WHERE id = ?')
+      .run(reviewer.id, 'In Review', req.params.id);
     return res.json({ ok: true });
   }
 
@@ -173,6 +190,12 @@ app.patch('/api/tasks/:id', (req, res) => {
         error: `You are on approved ${leaveConflict.type} from ${leaveConflict.start_date} to ${leaveConflict.end_date}, which covers this task's due date. Reassign it or change the due date first.`
       });
     }
+  }
+
+  if (status === 'Done' && task.status !== 'In Review') {
+    return res.status(409).json({
+      error: 'This task must be sent for review and checked by a reviewer before it can be marked Done.'
+    });
   }
 
   db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, req.params.id);
