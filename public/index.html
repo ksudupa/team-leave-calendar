@@ -632,6 +632,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   calendar.render();
   refresh();
+
+  setInterval(() => {
+    if (editingTaskId !== null || editingLeaveId !== null) return;
+    refresh();
+  }, 15000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && editingTaskId === null && editingLeaveId === null) {
+      refresh();
+    }
+  });
 });
 </script>
 </body>
