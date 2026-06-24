@@ -1,0 +1,13 @@
+{
+  "name": "team-leave-calendar",
+  "version": "1.0.0",
+  "description": "Team leave/availability calendar dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.19.2"
+  }
+}

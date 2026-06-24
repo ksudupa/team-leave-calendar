@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Team Leave Calendar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    margin: 0;
+    background: #f5f6f8;
+    color: #1d1d1f;
+  }
+  header {
+    background: #1d2433;
+    color: white;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  .layout {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .sidebar {
+    width: 320px;
+    flex-shrink: 0;
+  }
+  .card {
+    background: white;
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 15px; color: #444; }
+  label { display: block; font-size: 13px; margin-top: 10px; margin-bottom: 4px; color: #555; }
+  input, select, textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d8dadf;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  button {
+    margin-top: 14px;
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 6px;
+    background: #2a5bd7;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #1f47ad; }
+  #calendar-container { flex: 1; background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .upcoming-item { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+  .upcoming-item button { width: auto; padding: 2px 8px; margin: 0; background: #e63946; font-size: 11px; }
+  .fc-event { cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Team Leave & Availability Calendar</h1>
+  <span id="member-count" style="font-size:13px; opacity:0.8;"></span>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="card">
+      <h2>Book Leave / Mark Unavailable</h2>
+      <form id="leave-form">
+        <label>Your Name</label>
+        <input type="text" id="name" required placeholder="e.g. Karthi" />
+
+        <label>Type</label>
+        <select id="type">
+          <option>Leave</option>
+          <option>Sick</option>
+          <option>WFH</option>
+          <option>Travel</option>
+          <option>Other</option>
+        </select>
+
+        <label>Start Date</label>
+        <input type="date" id="start_date" required />
+
+        <label>End Date</label>
+        <input type="date" id="end_date" required />
+
+        <label>Note (optional)</label>
+        <textarea id="note" rows="2" placeholder="Optional details"></textarea>
+
+        <button type="submit">Add to Calendar</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Team Members</h2>
+      <div id="legend"></div>
+    </div>
+
+    <div class="card">
+      <h2>Upcoming / Active</h2>
+      <div id="upcoming"></div>
+    </div>
+  </div>
+
+  <div id="calendar-container">
+    <div id="calendar"></div>
+  </div>
+</div>
+
+<script>
+let calendar;
+
+async function fetchMembers() {
+  const res = await fetch('/api/members');
+  return res.json();
+}
+
+async function fetchLeaves() {
+  const res = await fetch('/api/leaves');
+  return res.json();
+}
+
+function toEventEnd(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function renderLegend(members) {
+  const el = document.getElementById('legend');
+  el.innerHTML = members.length
+    ? members.map(m => `<div class="legend-item"><span class="dot" style="background:${m.color}"></span>${m.name}</div>`).join('')
+    : '<div style="font-size:13px;color:#888;">No team members yet.</div>';
+  document.getElementById('member-count').textContent = members.length ? `${members.length} member(s)` : '';
+}
+
+async function renderUpcoming(leaves) {
+  const el = document.getElementById('upcoming');
+  const today = new Date().toISOString().slice(0, 10);
+  const relevant = leaves.filter(l => l.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
+  el.innerHTML = relevant.length
+    ? relevant.map(l => `
+      <div class="upcoming-item">
+        <span><span class="dot" style="background:${l.member_color}"></span> <strong>${l.member_name}</strong> — ${l.type}: ${l.start_date} to ${l.end_date}${l.note ? ' (' + l.note + ')' : ''}</span>
+        <button onclick="deleteLeave(${l.id})">Delete</button>
+      </div>
+    `).join('')
+    : '<div style="font-size:13px;color:#888;">Nothing upcoming.</div>';
+}
+
+async function deleteLeave(id) {
+  await fetch('/api/leaves/' + id, { method: 'DELETE' });
+  await refresh();
+}
+
+async function refresh() {
+  const [members, leaves] = await Promise.all([fetchMembers(), fetchLeaves()]);
+  renderLegend(members);
+  renderUpcoming(leaves);
+  calendar.removeAllEvents();
+  leaves.forEach(l => {
+    calendar.addEvent({
+      id: l.id,
+      title: `${l.member_name} (${l.type})`,
+      start: l.start_date,
+      end: toEventEnd(l.end_date),
+      color: l.member_color,
+      allDay: true,
+      extendedProps: { note: l.note }
+    });
+  });
+}
+
+document.getElementById('leave-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('name').value.trim();
+  const type = document.getElementById('type').value;
+  const start_date = document.getElementById('start_date').value;
+  const end_date = document.getElementById('end_date').value;
+  const note = document.getElementById('note').value.trim();
+
+  if (!name || !start_date || !end_date) return;
+  if (end_date < start_date) { alert('End date must be on/after start date.'); return; }
+
+  await fetch('/api/leaves', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, type, start_date, end_date, note })
+  });
+
+  e.target.reset();
+  await refresh();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const calendarEl = document.getElementById('calendar');
+  calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    height: 'auto',
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,dayGridWeek,listMonth' },
+    eventClick: (info) => {
+      const note = info.event.extendedProps.note;
+      if (note) alert('Note: ' + note);
+    }
+  });
+  calendar.render();
+  refresh();
+});
+</script>
+</body>
+</html>

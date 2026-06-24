@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: team-leave-calendar
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    disk:
+      name: leave-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /data/leave.db
