@@ -8,26 +8,26 @@
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 <style>
   :root {
-    --rsm-red: #9c1238;
-    --rsm-red-dark: #730d29;
-    --rsm-grey: #58595b;
-    --rsm-light-grey: #f2f0ee;
+    --fastned-green: #00e8ae;
+    --fastned-green-dark: #00b388;
+    --fastned-navy: #0a1f1c;
+    --fastned-light: #eefdf8;
   }
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     margin: 0;
-    background: var(--rsm-light-grey);
+    background: var(--fastned-light);
     color: #1d1d1f;
   }
   header {
-    background: var(--rsm-red);
+    background: var(--fastned-navy);
     color: white;
     padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 4px solid var(--rsm-red-dark);
+    border-bottom: 4px solid var(--fastned-green);
   }
   header h1 { margin: 0; font-size: 20px; }
   .layout {
@@ -63,17 +63,18 @@
     padding: 10px;
     border: none;
     border-radius: 6px;
-    background: var(--rsm-red);
-    color: white;
+    background: var(--fastned-green);
+    color: var(--fastned-navy);
+    font-weight: 600;
     font-size: 14px;
     cursor: pointer;
   }
-  button:hover { background: var(--rsm-red-dark); }
+  button:hover { background: var(--fastned-green-dark); }
   #calendar-container { flex: 1; background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
   .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
   .upcoming-item { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-  .upcoming-item button { width: auto; padding: 2px 8px; margin: 0; background: var(--rsm-grey); font-size: 11px; }
+  .upcoming-item button { width: auto; padding: 2px 8px; margin: 0; background: var(--fastned-navy); color: white; font-size: 11px; }
   .fc-event { cursor: pointer; }
   .half-day-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .half-day-row label { margin: 0; }
@@ -84,8 +85,8 @@
   .task-item .task-top { display: flex; justify-content: space-between; align-items: center; }
   .task-item .task-meta { color: #777; font-size: 11px; margin-top: 4px; }
   .task-item select { width: auto; font-size: 11px; padding: 2px 4px; margin-top: 6px; }
-  .task-item button { width: auto; padding: 2px 8px; margin: 6px 0 0 6px; background: var(--rsm-grey); font-size: 11px; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--rsm-light-grey); border-radius: 8px; padding: 4px; border: 1px solid #e2dfdb; }
+  .task-item button { width: auto; padding: 2px 8px; margin: 6px 0 0 6px; background: var(--fastned-navy); color: white; font-size: 11px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--fastned-light); border-radius: 8px; padding: 4px; border: 1px solid #e2dfdb; }
   .tab-btn {
     flex: 1;
     margin: 0;
@@ -93,12 +94,12 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: var(--rsm-grey);
+    color: var(--fastned-navy);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
   }
-  .tab-btn.active { background: var(--rsm-red); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+  .tab-btn.active { background: var(--fastned-green); color: var(--fastned-navy); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
   .modal-overlay {
@@ -118,11 +119,11 @@
     max-width: 420px;
     width: 90%;
     box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-    border-top: 5px solid var(--rsm-red);
+    border-top: 5px solid var(--fastned-green);
   }
-  .modal-box h3 { margin: 0 0 12px; color: var(--rsm-red-dark); font-size: 16px; }
+  .modal-box h3 { margin: 0 0 12px; color: var(--fastned-navy); font-size: 16px; }
   .modal-box p { margin: 0 0 6px; font-size: 14px; color: #333; white-space: pre-wrap; }
-  .modal-box button { background: var(--rsm-red); }
+  .modal-box button { background: var(--fastned-green); color: var(--fastned-navy); }
 </style>
 </head>
 <body>
