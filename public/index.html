@@ -487,8 +487,16 @@ function renderTasks(tasks) {
   }).join('');
 }
 
+async function fetchCanvasEvents() {
+  const res = await fetch('/api/canvas-events');
+  if (!res.ok) return [];
+  return res.json();
+}
+
 async function refresh() {
-  const [members, leaves, tasks] = await Promise.all([fetchMembers(), fetchLeaves(), fetchTasks()]);
+  const [members, leaves, tasks, canvasEvents] = await Promise.all([
+    fetchMembers(), fetchLeaves(), fetchTasks(), fetchCanvasEvents()
+  ]);
   renderLegend(members);
   renderUpcoming(leaves);
   renderTasks(tasks);
@@ -515,6 +523,19 @@ async function refresh() {
       textColor: t.member_color,
       classNames: ['task-event'],
       extendedProps: { note: t.note, kind: 'task' }
+    });
+  });
+  canvasEvents.forEach(c => {
+    calendar.addEvent({
+      id: 'canvas-' + c.uid,
+      title: `🎓 ${c.title}`,
+      start: c.start_date,
+      allDay: true,
+      backgroundColor: '#6c4ee3',
+      borderColor: '#6c4ee3',
+      textColor: 'white',
+      classNames: ['canvas-event'],
+      extendedProps: { note: c.url || '', kind: 'canvas' }
     });
   });
 }

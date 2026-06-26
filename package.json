@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "node-ical": "^0.26.1",
     "pg": "^8.22.0",
     "pusher": "^5.3.4",
     "pusher-js": "^8.5.0"

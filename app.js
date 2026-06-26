@@ -2,6 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const Pusher = require('pusher');
+const ical = require('node-ical');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -56,6 +57,17 @@ function initDb() {
           note TEXT,
           reviewer_id INTEGER REFERENCES members(id)
         );
+        CREATE TABLE IF NOT EXISTS canvas_events (
+          uid TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          all_day BOOLEAN NOT NULL DEFAULT false,
+          url TEXT
+        );
+        CREATE TABLE IF NOT EXISTS canvas_sync (
+          id INTEGER PRIMARY KEY DEFAULT 1,
+          last_synced_at TIMESTAMPTZ
+        );
       `);
 
       await pool.query(`
@@ -88,6 +100,44 @@ async function getOrCreateMember(name) {
   return inserted[0];
 }
 
+const CANVAS_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+
+async function syncCanvasEventsIfStale() {
+  if (!process.env.CANVAS_ICS_URL) return;
+
+  const { rows } = await pool.query('SELECT last_synced_at FROM canvas_sync WHERE id = 1');
+  const lastSynced = rows[0]?.last_synced_at;
+  if (lastSynced && Date.now() - new Date(lastSynced).getTime() < CANVAS_SYNC_INTERVAL_MS) {
+    return;
+  }
+
+  try {
+    const res = await fetch(process.env.CANVAS_ICS_URL);
+    const text = await res.text();
+    const parsed = ical.sync.parseICS(text);
+
+    for (const key in parsed) {
+      const event = parsed[key];
+      if (event.type !== 'VEVENT' || !event.start) continue;
+      const allDay = event.datetype === 'date';
+      const startDate = event.start.toISOString().slice(0, 10);
+      const eventUrl = typeof event.url === 'string' ? event.url : (event.url?.val || null);
+      await pool.query(`
+        INSERT INTO canvas_events (uid, title, start_date, all_day, url)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (uid) DO UPDATE SET title = $2, start_date = $3, all_day = $4, url = $5
+      `, [event.uid || key, event.summary || 'Canvas event', startDate, allDay, eventUrl]);
+    }
+
+    await pool.query(`
+      INSERT INTO canvas_sync (id, last_synced_at) VALUES (1, now())
+      ON CONFLICT (id) DO UPDATE SET last_synced_at = now()
+    `);
+  } catch (err) {
+    console.error('Canvas sync failed:', err);
+  }
+}
+
 async function findLeaveConflict(memberId, dueDate) {
   if (!dueDate) return null;
   const { rows } = await pool.query(
@@ -112,6 +162,16 @@ app.use(async (req, res, next) => {
 function wrapAsync(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
 }
+
+app.get('/api/canvas-events', wrapAsync(async (req, res) => {
+  await syncCanvasEventsIfStale();
+  const { rows } = await pool.query(`
+    SELECT * FROM canvas_events
+    WHERE start_date >= (CURRENT_DATE - INTERVAL '7 days')::date::text
+    ORDER BY start_date
+  `);
+  res.json(rows);
+}));
 
 app.get('/api/pusher-config', (req, res) => {
   if (!process.env.PUSHER_APP_ID) return res.json({ enabled: false });
