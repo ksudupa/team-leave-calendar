@@ -120,7 +120,10 @@ async function syncCanvasEventsIfStale() {
       const event = parsed[key];
       if (event.type !== 'VEVENT' || !event.start) continue;
       const allDay = event.datetype === 'date';
-      const startDate = event.start.toISOString().slice(0, 10);
+      const d = event.start;
+      const startDate = allDay
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
       const eventUrl = typeof event.url === 'string' ? event.url : (event.url?.val || null);
       await pool.query(`
         INSERT INTO canvas_events (uid, title, start_date, all_day, url)
