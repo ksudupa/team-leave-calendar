@@ -528,9 +528,9 @@ async function refresh() {
   canvasEvents.forEach(c => {
     calendar.addEvent({
       id: 'canvas-' + c.uid,
-      title: `🎓 ${c.title}`,
-      start: c.start_date,
-      allDay: true,
+      title: c.start_time ? `🎓 ${c.start_time} ${c.title}` : `🎓 ${c.title}`,
+      start: c.start_time ? `${c.start_date}T${c.start_time}` : c.start_date,
+      allDay: !c.start_time,
       backgroundColor: '#6c4ee3',
       borderColor: '#6c4ee3',
       textColor: 'white',

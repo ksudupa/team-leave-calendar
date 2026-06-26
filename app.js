@@ -61,6 +61,7 @@ function initDb() {
           uid TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           start_date TEXT NOT NULL,
+          start_time TEXT,
           all_day BOOLEAN NOT NULL DEFAULT false,
           url TEXT
         );
@@ -73,6 +74,7 @@ function initDb() {
       await pool.query(`
         ALTER TABLE leaves ADD COLUMN IF NOT EXISTS start_time TEXT;
         ALTER TABLE leaves ADD COLUMN IF NOT EXISTS end_time TEXT;
+        ALTER TABLE canvas_events ADD COLUMN IF NOT EXISTS start_time TEXT;
       `);
 
       for (const name of TEAM) {
@@ -101,6 +103,7 @@ async function getOrCreateMember(name) {
 }
 
 const CANVAS_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const CANVAS_START_DATE = '2026-06-22';
 const CANVAS_CUTOFF_DATE = '2026-07-17';
 
 async function syncCanvasEventsIfStale() {
@@ -125,13 +128,16 @@ async function syncCanvasEventsIfStale() {
       const startDate = allDay
         ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+      const startTime = allDay
+        ? null
+        : new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
       const eventUrl = typeof event.url === 'string' ? event.url : (event.url?.val || null);
-      if (startDate > CANVAS_CUTOFF_DATE) continue;
+      if (startDate > CANVAS_CUTOFF_DATE || startDate < CANVAS_START_DATE) continue;
       await pool.query(`
-        INSERT INTO canvas_events (uid, title, start_date, all_day, url)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (uid) DO UPDATE SET title = $2, start_date = $3, all_day = $4, url = $5
-      `, [event.uid || key, event.summary || 'Canvas event', startDate, allDay, eventUrl]);
+        INSERT INTO canvas_events (uid, title, start_date, start_time, all_day, url)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (uid) DO UPDATE SET title = $2, start_date = $3, start_time = $4, all_day = $5, url = $6
+      `, [event.uid || key, event.summary || 'Canvas event', startDate, startTime, allDay, eventUrl]);
     }
 
     await pool.query(`
@@ -172,10 +178,9 @@ app.get('/api/canvas-events', wrapAsync(async (req, res) => {
   await syncCanvasEventsIfStale();
   const { rows } = await pool.query(`
     SELECT * FROM canvas_events
-    WHERE start_date >= (CURRENT_DATE - INTERVAL '7 days')::date::text
-      AND start_date <= $1
-    ORDER BY start_date
-  `, [CANVAS_CUTOFF_DATE]);
+    WHERE start_date >= $1 AND start_date <= $2
+    ORDER BY start_date, (start_time IS NULL), start_time
+  `, [CANVAS_START_DATE, CANVAS_CUTOFF_DATE]);
   res.json(rows);
 }));
 
