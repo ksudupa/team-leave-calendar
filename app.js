@@ -101,6 +101,7 @@ async function getOrCreateMember(name) {
 }
 
 const CANVAS_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const CANVAS_CUTOFF_DATE = '2026-07-17';
 
 async function syncCanvasEventsIfStale() {
   if (!process.env.CANVAS_ICS_URL) return;
@@ -125,6 +126,7 @@ async function syncCanvasEventsIfStale() {
         ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
       const eventUrl = typeof event.url === 'string' ? event.url : (event.url?.val || null);
+      if (startDate > CANVAS_CUTOFF_DATE) continue;
       await pool.query(`
         INSERT INTO canvas_events (uid, title, start_date, all_day, url)
         VALUES ($1, $2, $3, $4, $5)
@@ -171,8 +173,9 @@ app.get('/api/canvas-events', wrapAsync(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT * FROM canvas_events
     WHERE start_date >= (CURRENT_DATE - INTERVAL '7 days')::date::text
+      AND start_date <= $1
     ORDER BY start_date
-  `);
+  `, [CANVAS_CUTOFF_DATE]);
   res.json(rows);
 }));
 
