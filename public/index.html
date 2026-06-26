@@ -493,9 +493,15 @@ async function fetchCanvasEvents() {
   return res.json();
 }
 
+async function fetchCompanyEvents() {
+  const res = await fetch('/api/company-events');
+  if (!res.ok) return [];
+  return res.json();
+}
+
 async function refresh() {
-  const [members, leaves, tasks, canvasEvents] = await Promise.all([
-    fetchMembers(), fetchLeaves(), fetchTasks(), fetchCanvasEvents()
+  const [members, leaves, tasks, canvasEvents, companyEvents] = await Promise.all([
+    fetchMembers(), fetchLeaves(), fetchTasks(), fetchCanvasEvents(), fetchCompanyEvents()
   ]);
   renderLegend(members);
   renderUpcoming(leaves);
@@ -540,6 +546,20 @@ async function refresh() {
       textColor: 'white',
       classNames: ['canvas-event'],
       extendedProps: { note: c.url || '', kind: 'canvas', time: c.start_time || null }
+    });
+  });
+  companyEvents.forEach(e => {
+    const timeRange = e.start_time && e.end_time ? `${e.start_time}-${e.end_time}` : e.start_time;
+    calendar.addEvent({
+      id: 'company-' + e.id,
+      title: `📅 ${e.title}`,
+      start: e.start_time ? `${e.start_date}T${e.start_time}` : e.start_date,
+      allDay: !e.start_time,
+      backgroundColor: 'var(--fastned-black)',
+      borderColor: 'var(--fastned-yellow)',
+      textColor: 'white',
+      classNames: ['company-event'],
+      extendedProps: { note: e.note || '', kind: 'company', time: timeRange }
     });
   });
 }

@@ -69,6 +69,15 @@ function initDb() {
           id INTEGER PRIMARY KEY DEFAULT 1,
           last_synced_at TIMESTAMPTZ
         );
+        CREATE TABLE IF NOT EXISTS company_events (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          start_time TEXT,
+          end_time TEXT,
+          all_day BOOLEAN NOT NULL DEFAULT false,
+          note TEXT
+        );
       `);
 
       await pool.query(`
@@ -182,6 +191,33 @@ app.get('/api/canvas-events', wrapAsync(async (req, res) => {
     ORDER BY start_date, (start_time IS NULL), start_time
   `, [CANVAS_START_DATE, CANVAS_CUTOFF_DATE]);
   res.json(rows);
+}));
+
+app.get('/api/company-events', wrapAsync(async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT * FROM company_events
+    ORDER BY start_date, (start_time IS NULL), start_time
+  `);
+  res.json(rows);
+}));
+
+app.post('/api/company-events', wrapAsync(async (req, res) => {
+  const { title, start_date, start_time, end_time, all_day, note } = req.body;
+  if (!title || !start_date) {
+    return res.status(400).json({ error: 'title and start_date are required' });
+  }
+  const { rows } = await pool.query(`
+    INSERT INTO company_events (title, start_date, start_time, end_time, all_day, note)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+  `, [title.trim(), start_date, start_time || null, end_time || null, !!all_day, note || '']);
+  notifyChange();
+  res.json({ id: rows[0].id });
+}));
+
+app.delete('/api/company-events/:id', wrapAsync(async (req, res) => {
+  await pool.query('DELETE FROM company_events WHERE id = $1', [req.params.id]);
+  notifyChange();
+  res.json({ ok: true });
 }));
 
 app.get('/api/pusher-config', (req, res) => {
