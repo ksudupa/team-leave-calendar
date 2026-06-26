@@ -502,11 +502,12 @@ async function refresh() {
   renderTasks(tasks);
   calendar.removeAllEvents();
   leaves.forEach(l => {
-    const timeRange = l.start_time && l.end_time ? `${l.start_time}-${l.end_time}` : null;
-    const bandLabel = l.half_day ? `${l.type} (${l.half_day})` : l.type;
+    const timeRange = l.start_time && l.end_time
+      ? `${l.start_time}-${l.end_time}`
+      : (l.half_day || null);
     calendar.addEvent({
       id: 'leave-' + l.id,
-      title: `${l.member_name} (${bandLabel})`,
+      title: `${l.member_name} (${l.type})`,
       start: l.start_date,
       end: toEventEnd(l.end_date),
       color: l.member_color,
