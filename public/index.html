@@ -541,8 +541,8 @@ async function refresh() {
       start: c.start_time ? `${c.start_date}T${c.start_time}` : c.start_date,
       allDay: !c.start_time,
       displayEventTime: false,
-      backgroundColor: '#6c4ee3',
-      borderColor: '#6c4ee3',
+      backgroundColor: '#1f6feb',
+      borderColor: '#1f6feb',
       textColor: 'white',
       classNames: ['canvas-event'],
       extendedProps: { note: c.url || '', kind: 'canvas', time: c.start_time || null }
@@ -555,9 +555,9 @@ async function refresh() {
       title: `📅 ${e.title}`,
       start: e.start_time ? `${e.start_date}T${e.start_time}` : e.start_date,
       allDay: !e.start_time,
-      backgroundColor: 'var(--fastned-black)',
-      borderColor: 'var(--fastned-yellow)',
-      textColor: 'white',
+      backgroundColor: 'var(--fastned-yellow)',
+      borderColor: 'var(--fastned-yellow-dark)',
+      textColor: 'var(--fastned-black)',
       classNames: ['company-event'],
       extendedProps: { note: e.note || '', kind: 'company', time: timeRange }
     });
