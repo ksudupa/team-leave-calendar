@@ -534,6 +534,7 @@ async function refresh() {
       title: `🎓 ${c.title}`,
       start: c.start_time ? `${c.start_date}T${c.start_time}` : c.start_date,
       allDay: !c.start_time,
+      displayEventTime: false,
       backgroundColor: '#6c4ee3',
       borderColor: '#6c4ee3',
       textColor: 'white',
