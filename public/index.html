@@ -650,6 +650,9 @@ document.addEventListener('DOMContentLoaded', () => {
     eventClick: (info) => {
       const note = info.event.extendedProps.note;
       if (note) showModal(note, 'Note');
+    },
+    eventDidMount: (info) => {
+      info.el.title = info.event.title;
     }
   });
   calendar.render();
