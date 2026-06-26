@@ -503,9 +503,10 @@ async function refresh() {
   calendar.removeAllEvents();
   leaves.forEach(l => {
     const timeRange = l.start_time && l.end_time ? `${l.start_time}-${l.end_time}` : null;
+    const bandLabel = l.half_day ? `${l.type} (${l.half_day})` : l.type;
     calendar.addEvent({
       id: 'leave-' + l.id,
-      title: `${l.member_name} (${formatLabel(l)})`,
+      title: `${l.member_name} (${bandLabel})`,
       start: l.start_date,
       end: toEventEnd(l.end_date),
       color: l.member_color,
@@ -529,7 +530,7 @@ async function refresh() {
   canvasEvents.forEach(c => {
     calendar.addEvent({
       id: 'canvas-' + c.uid,
-      title: c.start_time ? `🎓 ${c.start_time} ${c.title}` : `🎓 ${c.title}`,
+      title: `🎓 ${c.title}`,
       start: c.start_time ? `${c.start_date}T${c.start_time}` : c.start_date,
       allDay: !c.start_time,
       backgroundColor: '#6c4ee3',
